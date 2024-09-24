@@ -1,37 +1,75 @@
 import pandas as pd
+import numpy as np
+
 class StandardScalerDF:
     '''
-    This class has methods used for normalization of data using the method z=(x-u)/s where x is data,u is mean and s is std deviation
-    This class is only applicable on dataframes as it uses the columnnames for keeping track of the means and standard deviations
+    This class normalizes data using z = (x - u) / s, where x is the data, u is the mean, and s is the standard deviation.
+    Applicable only to DataFrames.
     '''
-    def fit(self,data:pd.DataFrame,columns_normalized=None,ddof:int=0):
+    def fit(self, data: pd.DataFrame, columns_excluded=None, ddof:int=0):
         '''
-        data: Dataframe whose statistics will be used for transforming data
-        columns_normalized: iterable of strings containing the names of columns that are to be normalized, if None then all the numeric columns will be normalized
-        ddof: decreased degrees of freedom , std dev is calculated using N-ddof degrees of freedom
+        Fit the scaler to the data. 
+        Parameters:
+        - data: DataFrame to calculate statistics from.
+        - columns_excluded: Iterable of strings for columns to exclude from normalization; if None, all numeric columns are used.
+        - ddof: Degrees of freedom for standard deviation calculation.
         '''
-        if columns_normalized is None:
-            self.columns_normalized=set(data.columns)-set(data.select_dtypes(['object','timedelta64','bool','datetime64','category']).columns) ##getting the numeric data type column names
+        if not isinstance(data, pd.DataFrame):
+            raise ValueError("Input data must be a pandas DataFrame.")
+        if columns_excluded is None:
+            self.columns_normalized = data.select_dtypes(include=[np.number]).columns.tolist()
         else:
-            self.columns_normalized=columns_normalized
-        self.Scaler={} ##dictionary for storing corresponding means and 
+            invalid_columns = set(columns_excluded) - set(data.columns)
+            if invalid_columns:
+                raise ValueError(f"Columns not found in DataFrame: {invalid_columns}")
+            self.columns_normalized = data.select_dtypes(include=[np.number]).columns.tolist()
+            self.columns_normalized = [col for col in self.columns_normalized if col not in columns_excluded]
+
+        self.Scaler = {}
         for column_name in self.columns_normalized:
-            self.Scaler[column_name]=(data[column_name].mean(),data[column_name].std(ddof=ddof)) ## setting corresponding means and std in a tuple corresponding to the key of column name
+            mean = data[column_name].mean()
+            std = data[column_name].std(ddof=ddof)
+            self.Scaler[column_name] = (mean, std)
     
-    def transform(self,data:pd.DataFrame):
+    def transform(self, data: pd.DataFrame):
         '''
-        data: Dataframe that needs to be normalized
+        Transform the data using the fitted scaler.
+        Parameters:
+        - data: DataFrame to normalize.
+        Returns:
+        - Normalized DataFrame.
         '''
-        for column_name,stats_tuple in self.Scaler.items():
-            data[column_name]=(data[column_name]-stats_tuple[0])/stats_tuple[1]
+        for column_name, (mean, std) in self.Scaler.items():
+            if column_name in data.columns:
+                data[column_name] = (data[column_name] - mean) / std
+            else:
+                raise ValueError(f"Column '{column_name}' not found in input DataFrame.")
         return data
     
-    def fit_transform(self,data:pd.DataFrame,columns_normalized:list=None,ddof:int=0):
+    def fit_transform(self, data: pd.DataFrame, columns_excluded=None, ddof:int=0):
         '''
-        data: Dataframe whose statistics will be used for transforming data and which will be normalized using the same
-        columns_normalized: iterable of strings containing the names of columns that are to be normalized, if None then all the numeric columns will be normalized
-        ddof: decreased degrees of freedom , std dev is calculated using N-ddof degrees of freedom
+        Fit to the data and then transform it.
+        Parameters:
+        - data: DataFrame to fit and transform.
+        - columns_excluded: Columns to exclude from normalization.
+        - ddof: Degrees of freedom for std calculation.
+        Returns:
+        - Normalized DataFrame.
         '''
-        self.fit(data,columns_normalized,ddof)
-        data_new=self.transform(data)
-        return data_new
+        self.fit(data, columns_excluded, ddof)
+        return self.transform(data)
+
+    def inverse_transform(self, data: pd.DataFrame):
+        '''
+        Reverse the normalization process.
+        Parameters:
+        - data: DataFrame to inverse transform.
+        Returns:
+        - Denormalized DataFrame.
+        '''
+        for column_name, (mean, std) in self.Scaler.items():
+            if column_name in data.columns:
+                data[column_name] = data[column_name] * std + mean
+            else:
+                raise ValueError(f"Column '{column_name}' not found in input DataFrame.")
+        return data
